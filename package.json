@@ -1,0 +1,15 @@
+{
+  "name": "wifree",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "sudo node index"
+  },
+  "author": "Men770",
+  "license": "ISC",
+  "devDependencies": {
+    "node_dns_changer": "^1.1.9"
+  }
+}
