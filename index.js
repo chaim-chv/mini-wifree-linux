@@ -1,53 +1,48 @@
-const http = require('http')
-const dns = require('node_dns_changer');
+const axios = require('axios').default
+const withDNS = require('axios-with-dns')
+const dns = require('node_dns_changer')
 
-const options = {
-    hostname: 'api.internal.netfree.link',
-    port: 80,
-    path: '/user/0',
-    method: 'GET'
+withDNS(axios)
+
+let internetStatus = false
+
+const disableInternet = async () => {
+  await dns.setDNSservers({
+    DNSservers: ['127.0.0.1', '127.0.0.2']
+  })
+  internetStatus = false
+  console.log('Internet disabled.')
 }
 
-var internetStatus = true;
-
-function detectNetFree() {
-    const req = http.request(options, res => {
-        if (res.statusCode == 200) {
-            detectHandler(true);
-        } else {
-            detectHandler(false);
-        }
-    })
-    req.on('error', error => {
-        detectHandler(false);
-    })
-    req.end()
+const enableInternet = async () => {
+  await dns.setDNSservers({
+    DNSservers: ['8.8.8.8', '8.8.4.4']
+  })
+  internetStatus = true
+  console.log('Internet enabled.')
 }
 
-function detectHandler(result) {
-    if (result && !internetStatus) {
-        enableInternet()
-    } else if (!result) {
-        disableInternet()
+const detectNetfree = async () => {
+  const res = await axios.get('http://api.internal.netfree.link/user/0', { dnsServer: '8.8.8.8' }).catch(async err => {
+    if (err.message == 'Timeout in making request') {
+      detectNetfree()
+    } else if (err.response?.status == 404) {
+      if (internetStatus) {
+        console.log('Disconnected from NetFree.')
+        await disableInternet()
+      }
+    } else {
+      console.log('Error:', err.message)
     }
-} 
-
-function disableInternet() {
-    dns.setDNSservers({
-        DNSservers: ['127.0.0.1','127.0.0.2']
-    })
-    internetStatus = false
+  })
+  if (res?.status == 200) {
+    if (!internetStatus) {
+      console.log('Connected to NetFree.')
+      await enableInternet()
+    }
+  }
 }
 
-function enableInternet() {
-    dns.setDNSservers({
-        DNSservers: ['1.1.1.1','1.1.2.2']
-    })
-    internetStatus = true;
-}
+detectNetfree()
 
-enableInternet()
-
-setInterval(() => {
-    detectNetFree()
-}, 1000);
+setInterval(detectNetfree, 1000)
