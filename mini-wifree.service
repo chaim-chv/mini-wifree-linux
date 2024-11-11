@@ -1,0 +1,15 @@
+[Unit]
+Description=Mini WiFree Server Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/node /opt/mini-wifree/index.js
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/mini-wifree/mini-wifree.log
+StandardError=append:/var/log/mini-wifree/mini-wifree.log
+
+[Install]
+WantedBy=multi-user.target
