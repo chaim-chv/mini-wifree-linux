@@ -1,78 +1,101 @@
-const axios = require('axios').default
-const withDNS = require('axios-with-dns')
-const dns = require('node_dns_changer')
+const axios = require('axios').default;
+const withDNS = require('axios-with-dns');
+const dns = require('node_dns_changer');
 
-withDNS(axios)
+withDNS(axios);
 
 // local DNS server package
 const dns2 = require('dns2');
 const { Packet } = dns2;
 
 // for netfree adresess we will resolve DNS with google
-const googleDNS = new dns2({ dns: '8.8.8.8', port: 53, recursive: true });
+const googleDNS = new dns2({ nameServers: ['8.8.4.4', '8.8.8.8', '1.1.1.1'], port: 53, recursive: true });
+
+const allowedNamesRegexes = [
+  /netfree.link$/,
+];
+
+const log = (message) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${message}`);
+};
 
 // local DNS server
 const server = dns2.createServer({
   udp: true,
+  tcp: true,
   recursive: true,
-  handle: async (request, send, rinfo) => {
+  handle: async (request, send) => {
     const response = Packet.createResponseFromRequest(request);
     const [ question ] = request.questions;
     const { name } = question;
-    if (name === 'netfree.link' || name.endsWith('.netfree.link')) {
+    if (allowedNamesRegexes.some(regex => regex.test(name))) {
       const DNSresult = await googleDNS.resolveA(name);
       response.answers = DNSresult.answers;
-    }
-    else {
+    } else {
       response.answers = [];
     }
     send(response);
   }
 });
-server.listen({ udp: 53 })
 
 let internetStatus = true;
 
 const disableInternet = async () => {
   await dns.setDNSservers({
     DNSservers: ['127.0.0.1']
-  })
-  internetStatus = false
-  console.log('Internet disabled (except netfree URLs).')
-}
+  });
+  internetStatus = false;
+  log('Internet disabled (except netfree URLs).');
+};
 
 const enableInternet = async () => {
   await dns.setDNSservers({
-    DNSservers: ['8.8.8.8', '8.8.4.4']
-  })
-  internetStatus = true
-  console.log('Internet enabled.')
-}
+    DNSservers: ['8.8.8.8', '8.8.4.4', '1.1.1.1']
+  });
+  internetStatus = true;
+  log('Internet enabled.');
+};
 
 const detectNetfree = async () => {
   const res = await axios.get('http://api.internal.netfree.link/user/0', { dnsServer: '8.8.8.8' }).catch(async err => {
-    if (err.message == 'Timeout in making request') {
-      detectNetfree()
-    } else if (err.response?.status == 404) {
-      if (internetStatus) {
-        console.log('Disconnected from NetFree.')
-        await disableInternet()
-      }
-    } else {
-      console.log('Error:', err.message)
+    if (internetStatus) {
+      log('Error:', err.message);
+      log('Maybe you are not connected to NetFree. disabling internet.');
+      return disableInternet();
     }
-  })
-  if (res?.status == 200) {
-    if (!internetStatus) {
-      console.log('Connected to NetFree.')
-      await enableInternet()
-    }
+    return null;
+  });
+  if (res?.status === 200 && !internetStatus) {
+    log('Connected to NetFree.');
+    return enableInternet();
   }
-}
-detectNetfree()
+  if ((res?.status !== 200 || !res?.status) && internetStatus) {
+    log('Disconnected from NetFree.');
+    return disableInternet();
+  }
+};
 
-setInterval(detectNetfree, 1000)
+const init = () => {
+  try {
+    server.listen({ udp: 53, tcp: 53 });
+  } catch (err) {
+    console.error('Failed to start local DNS server:', err.message);
+    process.exit(1);
+  }
+  
+  detectNetfree();
+};
+init();
 
-server.on('listening', () => { console.log('local DNS server lauched 🚀') })
+const checkNetfreeInterval = setInterval(detectNetfree, 1000);
 
-server.on('close', () => { console.log('local DNS server DOWN') })
+server.on('listening', () => { log('local DNS server lauched 🚀') });
+
+server.on('close', () => { log('local DNS server DOWN') });
+
+process.on('SIGINT', async () => {
+  clearInterval(checkNetfreeInterval);
+  await server.close();
+  process.exit(0);
+});
